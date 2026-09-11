@@ -13,11 +13,9 @@ import { authMiddleware } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-
 router.post("/", createAppointment);
 
 router.get("/available", getAvailableTimes);
-
 
 router.get(
     "/",
@@ -42,6 +40,5 @@ router.delete(
     authMiddleware,
     deleteAppointment
 );
-
 
 export default router;

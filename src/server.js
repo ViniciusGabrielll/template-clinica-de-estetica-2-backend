@@ -7,6 +7,13 @@ import serviceRoutes from "./routes/serviceRoutes.js";
 import businessHoursRoutes from "./routes/businessHoursRoutes.js";
 import appointmentRoutes from "./routes/appointmentRoutes.js";
 import blockedDateRoutes from "./routes/blockedDateRoutes.js";
+import {
+    deleteExpiredAppointments
+} from "./controllers/appointmentController.js";
+
+import {
+    deleteExpiredBlockedDates
+} from "./controllers/blockedDateController.js";
 
 dotenv.config();
 
@@ -43,6 +50,34 @@ app.get("/", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
+
 app.listen(PORT, () => {
     console.log(`Servidor rodando em http://localhost:${PORT}`);
 });
+
+setInterval(async () => {
+    try {
+        const deletedAppointments =
+            await deleteExpiredAppointments();
+
+        const deletedBlockedDates =
+            await deleteExpiredBlockedDates();
+
+        if (deletedAppointments > 0) {
+            console.log(
+                `${deletedAppointments} agendamento(s) expirado(s) excluído(s).`
+            );
+        }
+
+        if (deletedBlockedDates > 0) {
+            console.log(
+                `${deletedBlockedDates} dia(s) bloqueado(s) expirado(s) excluído(s).`
+            );
+        }
+    } catch (error) {
+        console.error(
+            "Erro na limpeza automática:",
+            error
+        );
+    }
+}, 5 * 60 * 1000);

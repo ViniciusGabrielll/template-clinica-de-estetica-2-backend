@@ -1,10 +1,5 @@
 import pool from "../config/database.js";
 
-
-/* =========================================================
-   CRIAR AGENDAMENTO
-========================================================= */
-
 export async function createAppointment(req, res) {
     const {
         service_ids,
@@ -13,10 +8,6 @@ export async function createAppointment(req, res) {
         appointment_date,
         start_time,
     } = req.body;
-
-    // -----------------------------------------------------
-    // Validação
-    // -----------------------------------------------------
 
     if (
         !Array.isArray(service_ids) ||
@@ -38,10 +29,6 @@ export async function createAppointment(req, res) {
         });
     }
 
-    // -----------------------------------------------------
-    // Converte IDs para números e remove duplicados
-    // -----------------------------------------------------
-
     const serviceIds = [
         ...new Set(
             service_ids
@@ -59,10 +46,6 @@ export async function createAppointment(req, res) {
             message: "Serviços inválidos.",
         });
     }
-
-    // -----------------------------------------------------
-    // Busca os serviços
-    // -----------------------------------------------------
 
     const placeholders = serviceIds
         .map(() => "?")
@@ -89,10 +72,6 @@ export async function createAppointment(req, res) {
         });
     }
 
-    // -----------------------------------------------------
-    // Calcula duração e preço total
-    // -----------------------------------------------------
-
     const totalDuration = services.reduce(
         (total, service) =>
             total + Number(service.duration),
@@ -104,10 +83,6 @@ export async function createAppointment(req, res) {
             total + Number(service.price),
         0
     );
-
-    // -----------------------------------------------------
-    // Calcula horário final
-    // -----------------------------------------------------
 
     const [startHour, startMinute] =
         start_time.split(":").map(Number);
@@ -128,22 +103,10 @@ export async function createAppointment(req, res) {
         `${String(endHour).padStart(2, "0")}:` +
         `${String(endMinute).padStart(2, "0")}:00`;
 
-    // -----------------------------------------------------
-    // Descobre o dia da semana
-    // -----------------------------------------------------
-
     const dayOfWeek =
         new Date(
             `${appointment_date}T12:00:00`
         ).getDay();
-
-    // -----------------------------------------------------
-    // Busca horário de funcionamento
-    //
-    // business_hours usa:
-    // opening_time
-    // closing_time
-    // -----------------------------------------------------
 
     const [businessHours] =
         await pool.query(
@@ -166,19 +129,21 @@ export async function createAppointment(req, res) {
         });
     }
 
-    // -----------------------------------------------------
-    // Verifica se o horário comporta todos os serviços
-    // -----------------------------------------------------
-
     const fitsBusinessHours =
         businessHours.some((period) => {
-            const [periodStartHour, periodStartMinute] =
+            const [
+                periodStartHour,
+                periodStartMinute,
+            ] =
                 period.opening_time
                     .toString()
                     .split(":")
                     .map(Number);
 
-            const [periodEndHour, periodEndMinute] =
+            const [
+                periodEndHour,
+                periodEndMinute,
+            ] =
                 period.closing_time
                     .toString()
                     .split(":")
@@ -205,14 +170,6 @@ export async function createAppointment(req, res) {
         });
     }
 
-    // -----------------------------------------------------
-    // Verifica conflitos
-    //
-    // appointments usa:
-    // start_time
-    // end_time
-    // -----------------------------------------------------
-
     const [conflicts] =
         await pool.query(
             `
@@ -237,23 +194,11 @@ export async function createAppointment(req, res) {
         });
     }
 
-    // -----------------------------------------------------
-    // Transação
-    // -----------------------------------------------------
-
     const connection =
         await pool.getConnection();
 
     try {
         await connection.beginTransaction();
-
-        /*
-         * Mantemos o primeiro serviço em service_id
-         * porque essa coluna ainda existe em appointments.
-         *
-         * Todos os serviços também são registrados
-         * em appointment_services.
-         */
 
         const firstServiceId =
             serviceIds[0];
@@ -285,10 +230,6 @@ export async function createAppointment(req, res) {
         const appointmentId =
             appointmentResult.insertId;
 
-        // -------------------------------------------------
-        // Relaciona todos os serviços
-        // -------------------------------------------------
-
         const serviceValues =
             serviceIds.map(
                 (serviceId) => [
@@ -313,29 +254,20 @@ export async function createAppointment(req, res) {
         return res.status(201).json({
             message:
                 "Agendamento realizado com sucesso.",
-
             appointment: {
                 id: appointmentId,
-
                 services: services.map(
                     (service) =>
                         service.name
                 ),
-
                 total_duration:
                     totalDuration,
-
                 total_price:
                     totalPrice,
-
                 appointment_date,
-
                 start_time,
-
                 end_time: endTime,
-
                 customer_name,
-
                 customer_phone,
             },
         });
@@ -356,22 +288,12 @@ export async function createAppointment(req, res) {
     }
 }
 
-
-/* =========================================================
-   HORÁRIOS DISPONÍVEIS
-========================================================= */
-
 export async function getAvailableTimes(req, res) {
     const {
         date,
         service_ids,
         service_id,
     } = req.query;
-
-    // -----------------------------------------------------
-    // Aceita service_ids no formato novo
-    // e service_id no formato antigo
-    // -----------------------------------------------------
 
     let rawServiceIds;
 
@@ -398,19 +320,11 @@ export async function getAvailableTimes(req, res) {
         ),
     ];
 
-    // -----------------------------------------------------
-    // Valida data
-    // -----------------------------------------------------
-
     if (!date) {
         return res.status(400).json({
             message: "Data não informada.",
         });
     }
-
-    // -----------------------------------------------------
-    // Valida serviços
-    // -----------------------------------------------------
 
     if (serviceIds.length === 0) {
         return res.status(400).json({
@@ -418,10 +332,6 @@ export async function getAvailableTimes(req, res) {
                 "Selecione pelo menos um serviço.",
         });
     }
-
-    // -----------------------------------------------------
-    // Busca serviços
-    // -----------------------------------------------------
 
     const placeholders = serviceIds
         .map(() => "?")
@@ -450,10 +360,6 @@ export async function getAvailableTimes(req, res) {
         });
     }
 
-    // -----------------------------------------------------
-    // Soma duração dos serviços
-    // -----------------------------------------------------
-
     const totalDuration =
         services.reduce(
             (total, service) =>
@@ -462,22 +368,10 @@ export async function getAvailableTimes(req, res) {
             0
         );
 
-    // -----------------------------------------------------
-    // Dia da semana
-    // -----------------------------------------------------
-
     const dayOfWeek =
         new Date(
             `${date}T12:00:00`
         ).getDay();
-
-    // -----------------------------------------------------
-    // Horário de funcionamento
-    //
-    // business_hours:
-    // opening_time
-    // closing_time
-    // -----------------------------------------------------
 
     const [businessHours] =
         await pool.query(
@@ -497,14 +391,6 @@ export async function getAvailableTimes(req, res) {
         return res.json([]);
     }
 
-    // -----------------------------------------------------
-    // Agendamentos existentes
-    //
-    // appointments:
-    // start_time
-    // end_time
-    // -----------------------------------------------------
-
     const [appointments] =
         await pool.query(
             `
@@ -517,10 +403,6 @@ export async function getAvailableTimes(req, res) {
             `,
             [date]
         );
-
-    // -----------------------------------------------------
-    // Gera horários
-    // -----------------------------------------------------
 
     const availableTimes = [];
 
@@ -550,7 +432,7 @@ export async function getAvailableTimes(req, res) {
         for (
             let start = periodStart;
             start + totalDuration <=
-                periodEnd;
+            periodEnd;
             start += SLOT_INTERVAL
         ) {
             const end =
@@ -571,10 +453,6 @@ export async function getAvailableTimes(req, res) {
                 `${String(
                     end % 60
                 ).padStart(2, "0")}:00`;
-
-            // ---------------------------------------------
-            // Verifica conflito
-            // ---------------------------------------------
 
             const hasConflict =
                 appointments.some(
@@ -618,21 +496,12 @@ export async function getAvailableTimes(req, res) {
         }
     }
 
-    // -----------------------------------------------------
-    // Remove duplicados
-    // -----------------------------------------------------
-
     const uniqueTimes = [
         ...new Set(availableTimes),
     ];
 
     return res.json(uniqueTimes);
 }
-
-
-/* =========================================================
-   LISTAR AGENDAMENTOS
-========================================================= */
 
 export async function getAppointments(req, res) {
     try {
@@ -709,11 +578,6 @@ export async function getAppointments(req, res) {
         });
     }
 }
-
-
-/* =========================================================
-   BUSCAR AGENDAMENTO POR ID
-========================================================= */
 
 export async function getAppointmentById(req, res) {
     const { id } = req.params;
@@ -799,11 +663,6 @@ export async function getAppointmentById(req, res) {
     }
 }
 
-
-/* =========================================================
-   ATUALIZAR STATUS
-========================================================= */
-
 export async function updateAppointmentStatus(
     req,
     res
@@ -859,17 +718,25 @@ export async function updateAppointmentStatus(
     }
 }
 
-
-/* =========================================================
-   DELETAR AGENDAMENTO
-========================================================= */
-
 export async function deleteAppointment(req, res) {
     const { id } = req.params;
 
+    const connection =
+        await pool.getConnection();
+
     try {
+        await connection.beginTransaction();
+
+        await connection.query(
+            `
+            DELETE FROM appointment_services
+            WHERE appointment_id = ?
+            `,
+            [id]
+        );
+
         const [result] =
-            await pool.query(
+            await connection.query(
                 `
                 DELETE FROM appointments
                 WHERE id = ?
@@ -878,17 +745,23 @@ export async function deleteAppointment(req, res) {
             );
 
         if (result.affectedRows === 0) {
+            await connection.rollback();
+
             return res.status(404).json({
                 message:
                     "Agendamento não encontrado.",
             });
         }
 
+        await connection.commit();
+
         return res.json({
             message:
                 "Agendamento excluído com sucesso.",
         });
     } catch (error) {
+        await connection.rollback();
+
         console.error(
             "Erro ao excluir agendamento:",
             error
@@ -898,5 +771,76 @@ export async function deleteAppointment(req, res) {
             message:
                 "Erro ao excluir agendamento.",
         });
+    } finally {
+        connection.release();
+    }
+}
+
+export async function deleteExpiredAppointments() {
+    const connection =
+        await pool.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        const [appointments] =
+            await connection.query(
+                `
+                SELECT id
+                FROM appointments
+                WHERE TIMESTAMP(
+                    appointment_date,
+                    end_time
+                ) < NOW()
+                `
+            );
+
+        if (appointments.length === 0) {
+            await connection.commit();
+            return 0;
+        }
+
+        const appointmentIds =
+            appointments.map(
+                (appointment) =>
+                    appointment.id
+            );
+
+        const placeholders =
+            appointmentIds
+                .map(() => "?")
+                .join(",");
+
+        await connection.query(
+            `
+            DELETE FROM appointment_services
+            WHERE appointment_id IN (${placeholders})
+            `,
+            appointmentIds
+        );
+
+        const [result] =
+            await connection.query(
+                `
+                DELETE FROM appointments
+                WHERE id IN (${placeholders})
+                `,
+                appointmentIds
+            );
+
+        await connection.commit();
+
+        return result.affectedRows;
+    } catch (error) {
+        await connection.rollback();
+
+        console.error(
+            "Erro ao excluir agendamentos expirados:",
+            error
+        );
+
+        throw error;
+    } finally {
+        connection.release();
     }
 }

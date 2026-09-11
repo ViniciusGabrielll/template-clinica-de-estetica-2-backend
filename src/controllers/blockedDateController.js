@@ -1,20 +1,16 @@
 import pool from "../config/database.js";
 
-
-// =========================
-// LISTAR DIAS BLOQUEADOS
-// =========================
-
 export async function getBlockedDates(req, res) {
     try {
         const [blockedDates] = await pool.query(
-            `SELECT *
-             FROM blocked_dates
-             ORDER BY date ASC`
+            `
+            SELECT *
+            FROM blocked_dates
+            ORDER BY date ASC
+            `
         );
 
         res.json(blockedDates);
-
     } catch (error) {
         console.error(error);
 
@@ -23,11 +19,6 @@ export async function getBlockedDates(req, res) {
         });
     }
 }
-
-
-// =========================
-// CRIAR DIA BLOQUEADO
-// =========================
 
 export async function createBlockedDate(req, res) {
     try {
@@ -43,9 +34,11 @@ export async function createBlockedDate(req, res) {
         }
 
         const [existingDates] = await pool.query(
-            `SELECT id
-             FROM blocked_dates
-             WHERE date = ?`,
+            `
+            SELECT id
+            FROM blocked_dates
+            WHERE date = ?
+            `,
             [date]
         );
 
@@ -56,12 +49,14 @@ export async function createBlockedDate(req, res) {
         }
 
         const [result] = await pool.query(
-            `INSERT INTO blocked_dates
+            `
+            INSERT INTO blocked_dates
             (
                 date,
                 reason
             )
-            VALUES (?, ?)`,
+            VALUES (?, ?)
+            `,
             [
                 date,
                 reason || null
@@ -72,7 +67,6 @@ export async function createBlockedDate(req, res) {
             message: "Dia bloqueado com sucesso.",
             blockedDateId: result.insertId
         });
-
     } catch (error) {
         console.error(error);
 
@@ -82,18 +76,15 @@ export async function createBlockedDate(req, res) {
     }
 }
 
-
-// =========================
-// EXCLUIR DIA BLOQUEADO
-// =========================
-
 export async function deleteBlockedDate(req, res) {
     try {
         const { id } = req.params;
 
         const [result] = await pool.query(
-            `DELETE FROM blocked_dates
-             WHERE id = ?`,
+            `
+            DELETE FROM blocked_dates
+            WHERE id = ?
+            `,
             [id]
         );
 
@@ -106,12 +97,31 @@ export async function deleteBlockedDate(req, res) {
         res.json({
             message: "Dia desbloqueado com sucesso."
         });
-
     } catch (error) {
         console.error(error);
 
         res.status(500).json({
             message: "Erro ao desbloquear dia."
         });
+    }
+}
+
+export async function deleteExpiredBlockedDates() {
+    try {
+        const [result] = await pool.query(
+            `
+            DELETE FROM blocked_dates
+            WHERE date < CURDATE()
+            `
+        );
+
+        return result.affectedRows;
+    } catch (error) {
+        console.error(
+            "Erro ao excluir dias bloqueados expirados:",
+            error
+        );
+
+        throw error;
     }
 }

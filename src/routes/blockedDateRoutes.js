@@ -10,20 +10,10 @@ import { authMiddleware } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-
-// =========================
-// PÚBLICO
-// =========================
-
 router.get(
     "/",
     getBlockedDates
 );
-
-
-// =========================
-// ADMIN
-// =========================
 
 router.post(
     "/",
@@ -36,6 +26,5 @@ router.delete(
     authMiddleware,
     deleteBlockedDate
 );
-
 
 export default router;
