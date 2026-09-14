@@ -12,10 +12,6 @@ import { authMiddleware } from "../middleware/authMiddleware.js";
 const router = express.Router();
 
 
-// =========================
-// PÚBLICO
-// =========================
-
 router.get(
     "/",
     getBusinessHours

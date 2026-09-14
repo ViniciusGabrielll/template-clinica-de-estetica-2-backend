@@ -15,6 +15,10 @@ import {
     deleteExpiredBlockedDates
 } from "./controllers/blockedDateController.js";
 
+import cloudinary from "./config/cloudinary.js";
+
+console.log("Cloudinary:", cloudinary.config().cloud_name);
+
 dotenv.config();
 
 const app = express();

@@ -13,11 +13,14 @@
   "type": "module",
   "dependencies": {
     "bcryptjs": "^3.0.3",
+    "cloudinary": "^2.11.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
-    "mysql2": "^3.24.2"
+    "multer": "^2.4.0",
+    "mysql2": "^3.24.2",
+    "sharp": "^0.35.4"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

@@ -1,9 +1,35 @@
 import pool from "../config/database.js";
+import cloudinary from "../config/cloudinary.js";
+import sharp from "sharp";
 
+async function uploadImageToCloudinary(file) {
+    if (!file) {
+        return null;
+    }
 
-// =========================
-// LISTAR SERVIÇOS
-// =========================
+    console.log("Arquivo recebido:", {
+        name: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size
+    });
+
+    try {
+        const result = await cloudinary.uploader.upload(
+            `data:${file.mimetype};base64,${file.buffer.toString("base64")}`,
+            {
+                folder: "clinica-estetica/services",
+                resource_type: "image"
+            }
+        );
+
+        console.log("Upload concluído:", result.secure_url);
+
+        return result.secure_url;
+    } catch (error) {
+        console.error("Erro no upload:", error);
+        throw error;
+    }
+}
 
 export async function getServices(req, res) {
     try {
@@ -15,7 +41,6 @@ export async function getServices(req, res) {
         );
 
         res.json(services);
-
     } catch (error) {
         console.error(error);
 
@@ -24,11 +49,6 @@ export async function getServices(req, res) {
         });
     }
 }
-
-
-// =========================
-// BUSCAR SERVIÇO POR ID
-// =========================
 
 export async function getServiceById(req, res) {
     try {
@@ -49,7 +69,6 @@ export async function getServiceById(req, res) {
         }
 
         res.json(services[0]);
-
     } catch (error) {
         console.error(error);
 
@@ -58,11 +77,6 @@ export async function getServiceById(req, res) {
         });
     }
 }
-
-
-// =========================
-// CRIAR SERVIÇO
-// =========================
 
 export async function createService(req, res) {
     try {
@@ -79,35 +93,38 @@ export async function createService(req, res) {
             });
         }
 
-        if (duration <= 0) {
+        if (Number(duration) <= 0) {
             return res.status(400).json({
                 message: "A duração deve ser maior que zero."
             });
         }
 
-        if (price < 0) {
+        if (Number(price) < 0) {
             return res.status(400).json({
                 message: "O preço não pode ser negativo."
             });
         }
 
+        const imageUrl = await uploadImageToCloudinary(req.file);
+
         const [result] = await pool.query(
             `INSERT INTO services
-            (name, description, duration, price)
-            VALUES (?, ?, ?, ?)`,
+            (name, description, duration, price, image_url)
+            VALUES (?, ?, ?, ?, ?)`,
             [
                 name,
                 description || null,
-                duration,
-                price
+                Number(duration),
+                Number(price),
+                imageUrl
             ]
         );
 
         res.status(201).json({
             message: "Serviço criado com sucesso.",
-            serviceId: result.insertId
+            serviceId: result.insertId,
+            image_url: imageUrl
         });
-
     } catch (error) {
         console.error(error);
 
@@ -116,11 +133,6 @@ export async function createService(req, res) {
         });
     }
 }
-
-
-// =========================
-// ATUALIZAR SERVIÇO
-// =========================
 
 export async function updateService(req, res) {
     try {
@@ -139,35 +151,66 @@ export async function updateService(req, res) {
             });
         }
 
-        if (duration <= 0) {
+        if (Number(duration) <= 0) {
             return res.status(400).json({
                 message: "A duração deve ser maior que zero."
             });
         }
 
-        if (price < 0) {
+        if (Number(price) < 0) {
             return res.status(400).json({
                 message: "O preço não pode ser negativo."
             });
         }
 
-        const [result] = await pool.query(
-            `UPDATE services
-             SET
-                name = ?,
-                description = ?,
-                duration = ?,
-                price = ?
-             WHERE id = ?
-             AND active = TRUE`,
-            [
+        let query;
+        let values;
+
+        if (req.file) {
+            const imageUrl = await uploadImageToCloudinary(req.file);
+
+            query = `
+                UPDATE services
+                SET
+                    name = ?,
+                    description = ?,
+                    duration = ?,
+                    price = ?,
+                    image_url = ?
+                WHERE id = ?
+                AND active = TRUE
+            `;
+
+            values = [
                 name,
                 description || null,
-                duration,
-                price,
+                Number(duration),
+                Number(price),
+                imageUrl,
                 id
-            ]
-        );
+            ];
+        } else {
+            query = `
+                UPDATE services
+                SET
+                    name = ?,
+                    description = ?,
+                    duration = ?,
+                    price = ?
+                WHERE id = ?
+                AND active = TRUE
+            `;
+
+            values = [
+                name,
+                description || null,
+                Number(duration),
+                Number(price),
+                id
+            ];
+        }
+
+        const [result] = await pool.query(query, values);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({
@@ -178,7 +221,6 @@ export async function updateService(req, res) {
         res.json({
             message: "Serviço atualizado com sucesso."
         });
-
     } catch (error) {
         console.error(error);
 
@@ -187,11 +229,6 @@ export async function updateService(req, res) {
         });
     }
 }
-
-
-// =========================
-// EXCLUIR SERVIÇO
-// =========================
 
 export async function deleteService(req, res) {
     try {
@@ -214,7 +251,6 @@ export async function deleteService(req, res) {
         res.json({
             message: "Serviço excluído com sucesso."
         });
-
     } catch (error) {
         console.error(error);
 
