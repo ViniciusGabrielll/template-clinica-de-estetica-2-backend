@@ -50,6 +50,26 @@ export async function getServices(req, res) {
     }
 }
 
+export async function getFeaturedServices(req, res) {
+    try {
+        const [services] = await pool.query(
+            `SELECT *
+             FROM services
+             WHERE active = TRUE
+             AND featured = TRUE
+             ORDER BY id DESC`
+        );
+
+        res.json(services);
+    } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+            message: "Erro ao buscar serviços em destaque."
+        });
+    }
+}
+
 export async function getServiceById(req, res) {
     try {
         const { id } = req.params;
@@ -84,7 +104,8 @@ export async function createService(req, res) {
             name,
             description,
             duration,
-            price
+            price,
+            featured
         } = req.body;
 
         if (!name || !duration || price === undefined) {
@@ -107,16 +128,19 @@ export async function createService(req, res) {
 
         const imageUrl = await uploadImageToCloudinary(req.file);
 
+        const isFeatured = featured === true || featured === "true";
+
         const [result] = await pool.query(
             `INSERT INTO services
-            (name, description, duration, price, image_url)
-            VALUES (?, ?, ?, ?, ?)`,
+            (name, description, duration, price, image_url, featured)
+            VALUES (?, ?, ?, ?, ?, ?)`,
             [
                 name,
                 description || null,
                 Number(duration),
                 Number(price),
-                imageUrl
+                imageUrl,
+                isFeatured
             ]
         );
 
@@ -142,7 +166,8 @@ export async function updateService(req, res) {
             name,
             description,
             duration,
-            price
+            price,
+            featured
         } = req.body;
 
         if (!name || !duration || price === undefined) {
@@ -163,6 +188,8 @@ export async function updateService(req, res) {
             });
         }
 
+        const isFeatured = featured === true || featured === "true";
+
         let query;
         let values;
 
@@ -176,7 +203,8 @@ export async function updateService(req, res) {
                     description = ?,
                     duration = ?,
                     price = ?,
-                    image_url = ?
+                    image_url = ?,
+                    featured = ?
                 WHERE id = ?
                 AND active = TRUE
             `;
@@ -187,6 +215,7 @@ export async function updateService(req, res) {
                 Number(duration),
                 Number(price),
                 imageUrl,
+                isFeatured,
                 id
             ];
         } else {
@@ -196,7 +225,8 @@ export async function updateService(req, res) {
                     name = ?,
                     description = ?,
                     duration = ?,
-                    price = ?
+                    price = ?,
+                    featured = ?
                 WHERE id = ?
                 AND active = TRUE
             `;
@@ -206,6 +236,7 @@ export async function updateService(req, res) {
                 description || null,
                 Number(duration),
                 Number(price),
+                isFeatured,
                 id
             ];
         }
@@ -236,7 +267,8 @@ export async function deleteService(req, res) {
 
         const [result] = await pool.query(
             `UPDATE services
-             SET active = FALSE
+             SET active = FALSE,
+                 featured = FALSE
              WHERE id = ?
              AND active = TRUE`,
             [id]

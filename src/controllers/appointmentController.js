@@ -1,177 +1,184 @@
 import pool from "../config/database.js";
 
 export async function createAppointment(req, res) {
-    const {
-        service_ids,
-        customer_name,
-        customer_phone,
-        appointment_date,
-        start_time,
-    } = req.body;
+    try {
+        const {
+            service_ids,
+            customer_name,
+            customer_phone,
+            appointment_date,
+            start_time
+        } = req.body;
 
-    if (
-        !Array.isArray(service_ids) ||
-        service_ids.length === 0
-    ) {
-        return res.status(400).json({
-            message: "Selecione pelo menos um serviço.",
-        });
-    }
+        if (
+            !Array.isArray(service_ids) ||
+            service_ids.length === 0 ||
+            !customer_name ||
+            !customer_phone ||
+            !appointment_date ||
+            !start_time
+        ) {
+            return res.status(400).json({
+                message: "Preencha todos os campos obrigatórios."
+            });
+        }
 
-    if (
-        !customer_name ||
-        !customer_phone ||
-        !appointment_date ||
-        !start_time
-    ) {
-        return res.status(400).json({
-            message: "Preencha todos os campos obrigatórios.",
-        });
-    }
+        const uniqueServiceIds = [
+            ...new Set(
+                service_ids.map(Number).filter(Boolean)
+            )
+        ];
 
-    const serviceIds = [
-        ...new Set(
-            service_ids
-                .map(Number)
-                .filter(
-                    (id) =>
-                        Number.isInteger(id) &&
-                        id > 0
-                )
-        ),
-    ];
+        if (uniqueServiceIds.length === 0) {
+            return res.status(400).json({
+                message: "Selecione pelo menos um serviço."
+            });
+        }
 
-    if (serviceIds.length === 0) {
-        return res.status(400).json({
-            message: "Serviços inválidos.",
-        });
-    }
+        const placeholders = uniqueServiceIds
+            .map(() => "?")
+            .join(",");
 
-    const placeholders = serviceIds
-        .map(() => "?")
-        .join(",");
-
-    const [services] = await pool.query(
-        `
-        SELECT
-            id,
-            name,
-            duration,
-            price
-        FROM services
-        WHERE id IN (${placeholders})
-        AND active = TRUE
-        `,
-        serviceIds
-    );
-
-    if (services.length !== serviceIds.length) {
-        return res.status(400).json({
-            message:
-                "Um ou mais serviços selecionados não estão disponíveis.",
-        });
-    }
-
-    const totalDuration = services.reduce(
-        (total, service) =>
-            total + Number(service.duration),
-        0
-    );
-
-    const totalPrice = services.reduce(
-        (total, service) =>
-            total + Number(service.price),
-        0
-    );
-
-    const [startHour, startMinute] =
-        start_time.split(":").map(Number);
-
-    const startMinutes =
-        startHour * 60 + startMinute;
-
-    const endMinutes =
-        startMinutes + totalDuration;
-
-    const endHour =
-        Math.floor(endMinutes / 60);
-
-    const endMinute =
-        endMinutes % 60;
-
-    const endTime =
-        `${String(endHour).padStart(2, "0")}:` +
-        `${String(endMinute).padStart(2, "0")}:00`;
-
-    const dayOfWeek =
-        new Date(
-            `${appointment_date}T12:00:00`
-        ).getDay();
-
-    const [businessHours] =
-        await pool.query(
+        const [services] = await pool.query(
             `
-            SELECT
-                opening_time,
-                closing_time
-            FROM business_hours
-            WHERE day_of_week = ?
+            SELECT id, name, duration, price
+            FROM services
+            WHERE id IN (${placeholders})
             AND active = TRUE
-            ORDER BY opening_time
             `,
-            [dayOfWeek]
+            uniqueServiceIds
         );
 
-    if (businessHours.length === 0) {
-        return res.status(400).json({
-            message:
-                "A clínica não funciona neste dia.",
-        });
-    }
+        if (services.length !== uniqueServiceIds.length) {
+            return res.status(400).json({
+                message: "Um ou mais serviços selecionados não estão disponíveis."
+            });
+        }
 
-    const fitsBusinessHours =
-        businessHours.some((period) => {
-            const [
-                periodStartHour,
-                periodStartMinute,
-            ] =
-                period.opening_time
-                    .toString()
-                    .split(":")
-                    .map(Number);
+        const [promotions] = await pool.query(
+            `
+            SELECT service_id, promotional_price
+            FROM promotions
+            WHERE service_id IN (${placeholders})
+            AND expires_at > NOW()
+            `,
+            uniqueServiceIds
+        );
 
-            const [
-                periodEndHour,
-                periodEndMinute,
-            ] =
-                period.closing_time
-                    .toString()
-                    .split(":")
-                    .map(Number);
+        const promotionsMap = new Map(
+            promotions.map((promotion) => [
+                Number(promotion.service_id),
+                Number(promotion.promotional_price)
+            ])
+        );
 
-            const periodStart =
-                periodStartHour * 60 +
-                periodStartMinute;
+        const totalDuration = services.reduce(
+            (total, service) =>
+                total + Number(service.duration),
+            0
+        );
 
-            const periodEnd =
-                periodEndHour * 60 +
-                periodEndMinute;
+        const originalTotalPrice = services.reduce(
+            (total, service) =>
+                total + Number(service.price),
+            0
+        );
 
-            return (
-                startMinutes >= periodStart &&
-                endMinutes <= periodEnd
-            );
-        });
+        const totalPrice = services.reduce(
+            (total, service) => {
+                const promotionalPrice =
+                    promotionsMap.get(Number(service.id));
 
-    if (!fitsBusinessHours) {
-        return res.status(400).json({
-            message:
-                "O horário escolhido não comporta todos os serviços.",
-        });
-    }
+                const price =
+                    promotionalPrice !== undefined
+                        ? promotionalPrice
+                        : Number(service.price);
 
-    const [conflicts] =
-        await pool.query(
+                return total + price;
+            },
+            0
+        );
+
+        const [businessHours] = await pool.query(
+            `
+            SELECT opening_time, closing_time
+            FROM business_hours
+            WHERE day_of_week = DAYOFWEEK(?) - 1
+            AND active = TRUE
+            ORDER BY opening_time ASC
+            LIMIT 1
+            `,
+            [appointment_date]
+        );
+
+        if (businessHours.length === 0) {
+            return res.status(400).json({
+                message: "A clínica não funciona neste dia."
+            });
+        }
+
+        const openingTime = String(
+            businessHours[0].opening_time
+        ).slice(0, 5);
+
+        const closingTime = String(
+            businessHours[0].closing_time
+        ).slice(0, 5);
+
+        const [startHour, startMinute] =
+            String(start_time)
+                .slice(0, 5)
+                .split(":")
+                .map(Number);
+
+        const startMinutes =
+            startHour * 60 + startMinute;
+
+        const endMinutes =
+            startMinutes + totalDuration;
+
+        const endHour =
+            Math.floor(endMinutes / 60);
+
+        const endMinute =
+            endMinutes % 60;
+
+        const normalizedStartTime =
+            `${String(startHour).padStart(2, "0")}:${String(
+                startMinute
+            ).padStart(2, "0")}:00`;
+
+        const endTime =
+            `${String(endHour).padStart(2, "0")}:${String(
+                endMinute
+            ).padStart(2, "0")}:00`;
+
+        if (
+            normalizedStartTime.slice(0, 5) < openingTime ||
+            endTime.slice(0, 5) > closingTime
+        ) {
+            return res.status(400).json({
+                message: "O horário selecionado está fora do horário de funcionamento."
+            });
+        }
+
+        const [blockedDates] = await pool.query(
+            `
+            SELECT id
+            FROM blocked_dates
+            WHERE date = ?
+            LIMIT 1
+            `,
+            [appointment_date]
+        );
+
+        if (blockedDates.length > 0) {
+            return res.status(400).json({
+                message: "A clínica não funciona nesta data."
+            });
+        }
+
+        const [conflicts] = await pool.query(
             `
             SELECT id
             FROM appointments
@@ -179,170 +186,135 @@ export async function createAppointment(req, res) {
             AND status != 'cancelled'
             AND start_time < ?
             AND end_time > ?
+            LIMIT 1
             `,
             [
                 appointment_date,
                 endTime,
-                start_time,
+                normalizedStartTime
             ]
         );
 
-    if (conflicts.length > 0) {
-        return res.status(400).json({
-            message:
-                "Esse horário não está mais disponível.",
-        });
-    }
+        if (conflicts.length > 0) {
+            return res.status(409).json({
+                message: "Este horário não está mais disponível."
+            });
+        }
 
-    const connection =
-        await pool.getConnection();
+        const connection =
+            await pool.getConnection();
 
-    try {
-        await connection.beginTransaction();
+        try {
+            await connection.beginTransaction();
 
-        const firstServiceId =
-            serviceIds[0];
+            const [appointmentResult] =
+                await connection.query(
+                    `
+                    INSERT INTO appointments (
+                        service_id,
+                        customer_name,
+                        customer_phone,
+                        appointment_date,
+                        start_time,
+                        end_time,
+                        original_total_price,
+                        total_price,
+                        status
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')
+                    `,
+                    [
+                        uniqueServiceIds[0],
+                        customer_name,
+                        customer_phone,
+                        appointment_date,
+                        normalizedStartTime,
+                        endTime,
+                        originalTotalPrice,
+                        totalPrice
+                    ]
+                );
 
-        const [appointmentResult] =
+            const appointmentId =
+                appointmentResult.insertId;
+
+            const appointmentServicesValues =
+                uniqueServiceIds.map((serviceId) => [
+                    appointmentId,
+                    serviceId
+                ]);
+
             await connection.query(
                 `
-                INSERT INTO appointments (
-                    service_id,
-                    customer_name,
-                    customer_phone,
-                    appointment_date,
-                    start_time,
-                    end_time,
-                    status
+                INSERT INTO appointment_services (
+                    appointment_id,
+                    service_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 'scheduled')
+                VALUES ?
                 `,
-                [
-                    firstServiceId,
-                    customer_name,
-                    customer_phone,
-                    appointment_date,
-                    start_time,
-                    endTime,
-                ]
+                [appointmentServicesValues]
             );
 
-        const appointmentId =
-            appointmentResult.insertId;
+            await connection.commit();
 
-        const serviceValues =
-            serviceIds.map(
-                (serviceId) => [
-                    appointmentId,
-                    serviceId,
-                ]
-            );
-
-        await connection.query(
-            `
-            INSERT INTO appointment_services (
-                appointment_id,
-                service_id
-            )
-            VALUES ?
-            `,
-            [serviceValues]
-        );
-
-        await connection.commit();
-
-        return res.status(201).json({
-            message:
-                "Agendamento realizado com sucesso.",
-            appointment: {
-                id: appointmentId,
-                services: services.map(
-                    (service) =>
-                        service.name
-                ),
-                total_duration:
-                    totalDuration,
-                total_price:
-                    totalPrice,
-                appointment_date,
-                start_time,
-                end_time: endTime,
-                customer_name,
-                customer_phone,
-            },
-        });
+            return res.status(201).json({
+                message: "Agendamento realizado com sucesso.",
+                appointment_id: appointmentId,
+                total_duration: totalDuration,
+                original_total_price:
+                    originalTotalPrice,
+                total_price: totalPrice,
+                end_time: endTime
+            });
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
     } catch (error) {
-        await connection.rollback();
-
         console.error(
             "Erro ao criar agendamento:",
             error
         );
 
         return res.status(500).json({
-            message:
-                "Erro ao criar agendamento.",
+            message: "Erro ao criar agendamento."
         });
-    } finally {
-        connection.release();
     }
 }
 
 export async function getAvailableTimes(req, res) {
-    const {
-        date,
-        service_ids,
-        service_id,
-    } = req.query;
+    try {
+        const {
+            date,
+            service_ids
+        } = req.query;
 
-    let rawServiceIds;
+        if (!date || !service_ids) {
+            return res.status(400).json({
+                message: "Data e serviços são obrigatórios."
+            });
+        }
 
-    if (service_ids) {
-        rawServiceIds =
-            Array.isArray(service_ids)
-                ? service_ids
-                : [service_ids];
-    } else if (service_id) {
-        rawServiceIds = [service_id];
-    } else {
-        rawServiceIds = [];
-    }
+        const serviceIds = String(service_ids)
+            .split(",")
+            .map(Number)
+            .filter(Boolean);
 
-    const serviceIds = [
-        ...new Set(
-            rawServiceIds
-                .map(Number)
-                .filter(
-                    (id) =>
-                        Number.isInteger(id) &&
-                        id > 0
-                )
-        ),
-    ];
+        if (serviceIds.length === 0) {
+            return res.status(400).json({
+                message: "Selecione pelo menos um serviço."
+            });
+        }
 
-    if (!date) {
-        return res.status(400).json({
-            message: "Data não informada.",
-        });
-    }
+        const placeholders = serviceIds
+            .map(() => "?")
+            .join(",");
 
-    if (serviceIds.length === 0) {
-        return res.status(400).json({
-            message:
-                "Selecione pelo menos um serviço.",
-        });
-    }
-
-    const placeholders = serviceIds
-        .map(() => "?")
-        .join(",");
-
-    const [services] =
-        await pool.query(
+        const [services] = await pool.query(
             `
-            SELECT
-                id,
-                duration
+            SELECT id, duration
             FROM services
             WHERE id IN (${placeholders})
             AND active = TRUE
@@ -350,53 +322,59 @@ export async function getAvailableTimes(req, res) {
             serviceIds
         );
 
-    if (
-        services.length !==
-        serviceIds.length
-    ) {
-        return res.status(400).json({
-            message:
-                "Um ou mais serviços não estão disponíveis.",
-        });
-    }
+        if (services.length !== serviceIds.length) {
+            return res.status(400).json({
+                message: "Um ou mais serviços não foram encontrados."
+            });
+        }
 
-    const totalDuration =
-        services.reduce(
+        const totalDuration = services.reduce(
             (total, service) =>
-                total +
-                Number(service.duration),
+                total + Number(service.duration),
             0
         );
 
-    const dayOfWeek =
-        new Date(
-            `${date}T12:00:00`
-        ).getDay();
-
-    const [businessHours] =
-        await pool.query(
+        const [businessHours] = await pool.query(
             `
-            SELECT
-                opening_time,
-                closing_time
+            SELECT opening_time, closing_time
             FROM business_hours
-            WHERE day_of_week = ?
+            WHERE day_of_week = DAYOFWEEK(?) - 1
             AND active = TRUE
-            ORDER BY opening_time
+            ORDER BY opening_time ASC
+            LIMIT 1
             `,
-            [dayOfWeek]
+            [date]
         );
 
-    if (businessHours.length === 0) {
-        return res.json([]);
-    }
+        if (businessHours.length === 0) {
+            return res.json([]);
+        }
 
-    const [appointments] =
-        await pool.query(
+        const openingTime = String(
+            businessHours[0].opening_time
+        ).slice(0, 5);
+
+        const closingTime = String(
+            businessHours[0].closing_time
+        ).slice(0, 5);
+
+        const [blockedDates] = await pool.query(
             `
-            SELECT
-                start_time,
-                end_time
+            SELECT id
+            FROM blocked_dates
+            WHERE date = ?
+            LIMIT 1
+            `,
+            [date]
+        );
+
+        if (blockedDates.length > 0) {
+            return res.json([]);
+        }
+
+        const [appointments] = await pool.query(
+            `
+            SELECT start_time, end_time
             FROM appointments
             WHERE appointment_date = ?
             AND status != 'cancelled'
@@ -404,86 +382,80 @@ export async function getAvailableTimes(req, res) {
             [date]
         );
 
-    const availableTimes = [];
+        const availableTimes = [];
 
-    const SLOT_INTERVAL = 30;
-
-    for (const period of businessHours) {
-        const [startHour, startMinute] =
-            period.opening_time
-                .toString()
+        const [openingHour, openingMinute] =
+            openingTime
                 .split(":")
                 .map(Number);
 
-        const [endHour, endMinute] =
-            period.closing_time
-                .toString()
+        const [closingHour, closingMinute] =
+            closingTime
                 .split(":")
                 .map(Number);
 
-        const periodStart =
-            startHour * 60 +
-            startMinute;
+        const openingMinutes =
+            openingHour * 60 + openingMinute;
 
-        const periodEnd =
-            endHour * 60 +
-            endMinute;
+        const closingMinutes =
+            closingHour * 60 + closingMinute;
 
         for (
-            let start = periodStart;
-            start + totalDuration <=
-            periodEnd;
-            start += SLOT_INTERVAL
+            let minutes = openingMinutes;
+            minutes + totalDuration <= closingMinutes;
+            minutes += 30
         ) {
-            const end =
-                start + totalDuration;
+            const hours = Math.floor(
+                minutes / 60
+            );
+
+            const mins = minutes % 60;
 
             const startTime =
-                `${String(
-                    Math.floor(start / 60)
-                ).padStart(2, "0")}:` +
-                `${String(
-                    start % 60
-                ).padStart(2, "0")}:00`;
+                `${String(hours).padStart(
+                    2,
+                    "0"
+                )}:${String(mins).padStart(
+                    2,
+                    "0"
+                )}:00`;
+
+            const endMinutes =
+                minutes + totalDuration;
+
+            const endHours =
+                Math.floor(endMinutes / 60);
+
+            const endMins =
+                endMinutes % 60;
 
             const endTime =
-                `${String(
-                    Math.floor(end / 60)
-                ).padStart(2, "0")}:` +
-                `${String(
-                    end % 60
-                ).padStart(2, "0")}:00`;
+                `${String(endHours).padStart(
+                    2,
+                    "0"
+                )}:${String(endMins).padStart(
+                    2,
+                    "0"
+                )}:00`;
 
             const hasConflict =
                 appointments.some(
                     (appointment) => {
                         const appointmentStart =
-                            appointment.start_time
-                                .toString()
-                                .split(":")
-                                .map(Number);
+                            String(
+                                appointment.start_time
+                            ).slice(0, 8);
 
                         const appointmentEnd =
-                            appointment.end_time
-                                .toString()
-                                .split(":")
-                                .map(Number);
-
-                        const existingStart =
-                            appointmentStart[0] *
-                                60 +
-                            appointmentStart[1];
-
-                        const existingEnd =
-                            appointmentEnd[0] *
-                                60 +
-                            appointmentEnd[1];
+                            String(
+                                appointment.end_time
+                            ).slice(0, 8);
 
                         return (
-                            start <
-                                existingEnd &&
-                            end >
-                                existingStart
+                            appointmentStart <
+                                endTime &&
+                            appointmentEnd >
+                                startTime
                         );
                     }
                 );
@@ -494,13 +466,19 @@ export async function getAvailableTimes(req, res) {
                 );
             }
         }
+
+        return res.json(availableTimes);
+    } catch (error) {
+        console.error(
+            "Erro ao buscar horários disponíveis:",
+            error
+        );
+
+        return res.status(500).json({
+            message:
+                "Erro ao buscar horários disponíveis."
+        });
     }
-
-    const uniqueTimes = [
-        ...new Set(availableTimes),
-    ];
-
-    return res.json(uniqueTimes);
 }
 
 export async function getAppointments(req, res) {
@@ -515,8 +493,9 @@ export async function getAppointments(req, res) {
                     a.appointment_date,
                     a.start_time,
                     a.end_time,
+                    a.original_total_price,
+                    a.total_price,
                     a.status,
-
                     COALESCE(
                         GROUP_CONCAT(
                             DISTINCT s2.name
@@ -525,28 +504,23 @@ export async function getAppointments(req, res) {
                         ),
                         s1.name
                     ) AS service_name,
-
                     COALESCE(
-                        SUM(s2.duration),
+                        (
+                            SELECT SUM(s3.duration)
+                            FROM appointment_services aps2
+                            INNER JOIN services s3
+                                ON s3.id = aps2.service_id
+                            WHERE aps2.appointment_id = a.id
+                        ),
                         s1.duration
-                    ) AS duration,
-
-                    COALESCE(
-                        SUM(s2.price),
-                        s1.price
-                    ) AS price
-
+                    ) AS duration
                 FROM appointments a
-
-                LEFT JOIN appointment_services aps
-                    ON a.id = aps.appointment_id
-
-                LEFT JOIN services s2
-                    ON aps.service_id = s2.id
-
                 LEFT JOIN services s1
-                    ON a.service_id = s1.id
-
+                    ON s1.id = a.service_id
+                LEFT JOIN appointment_services aps
+                    ON aps.appointment_id = a.id
+                LEFT JOIN services s2
+                    ON s2.id = aps.service_id
                 GROUP BY
                     a.id,
                     a.customer_name,
@@ -554,11 +528,11 @@ export async function getAppointments(req, res) {
                     a.appointment_date,
                     a.start_time,
                     a.end_time,
+                    a.original_total_price,
+                    a.total_price,
                     a.status,
                     s1.name,
-                    s1.duration,
-                    s1.price
-
+                    s1.duration
                 ORDER BY
                     a.appointment_date ASC,
                     a.start_time ASC
@@ -574,15 +548,15 @@ export async function getAppointments(req, res) {
 
         return res.status(500).json({
             message:
-                "Erro ao buscar agendamentos.",
+                "Erro ao buscar agendamentos."
         });
     }
 }
 
 export async function getAppointmentById(req, res) {
-    const { id } = req.params;
-
     try {
+        const { id } = req.params;
+
         const [appointments] =
             await pool.query(
                 `
@@ -593,8 +567,9 @@ export async function getAppointmentById(req, res) {
                     a.appointment_date,
                     a.start_time,
                     a.end_time,
+                    a.original_total_price,
+                    a.total_price,
                     a.status,
-
                     COALESCE(
                         GROUP_CONCAT(
                             DISTINCT s2.name
@@ -603,30 +578,24 @@ export async function getAppointmentById(req, res) {
                         ),
                         s1.name
                     ) AS service_name,
-
                     COALESCE(
-                        SUM(s2.duration),
+                        (
+                            SELECT SUM(s3.duration)
+                            FROM appointment_services aps2
+                            INNER JOIN services s3
+                                ON s3.id = aps2.service_id
+                            WHERE aps2.appointment_id = a.id
+                        ),
                         s1.duration
-                    ) AS duration,
-
-                    COALESCE(
-                        SUM(s2.price),
-                        s1.price
-                    ) AS price
-
+                    ) AS duration
                 FROM appointments a
-
-                LEFT JOIN appointment_services aps
-                    ON a.id = aps.appointment_id
-
-                LEFT JOIN services s2
-                    ON aps.service_id = s2.id
-
                 LEFT JOIN services s1
-                    ON a.service_id = s1.id
-
+                    ON s1.id = a.service_id
+                LEFT JOIN appointment_services aps
+                    ON aps.appointment_id = a.id
+                LEFT JOIN services s2
+                    ON s2.id = aps.service_id
                 WHERE a.id = ?
-
                 GROUP BY
                     a.id,
                     a.customer_name,
@@ -634,18 +603,18 @@ export async function getAppointmentById(req, res) {
                     a.appointment_date,
                     a.start_time,
                     a.end_time,
+                    a.original_total_price,
+                    a.total_price,
                     a.status,
                     s1.name,
-                    s1.duration,
-                    s1.price
+                    s1.duration
                 `,
                 [id]
             );
 
         if (appointments.length === 0) {
             return res.status(404).json({
-                message:
-                    "Agendamento não encontrado.",
+                message: "Agendamento não encontrado."
             });
         }
 
@@ -658,52 +627,46 @@ export async function getAppointmentById(req, res) {
 
         return res.status(500).json({
             message:
-                "Erro ao buscar agendamento.",
+                "Erro ao buscar agendamento."
         });
     }
 }
 
-export async function updateAppointmentStatus(
-    req,
-    res
-) {
-    const { id } = req.params;
-    const { status } = req.body;
-
-    const validStatuses = [
-        "scheduled",
-        "confirmed",
-        "completed",
-        "cancelled",
-    ];
-
-    if (!validStatuses.includes(status)) {
-        return res.status(400).json({
-            message: "Status inválido.",
-        });
-    }
-
+export async function updateAppointmentStatus(req, res) {
     try {
-        const [result] =
-            await pool.query(
-                `
-                UPDATE appointments
-                SET status = ?
-                WHERE id = ?
-                `,
-                [status, id]
-            );
+        const { id } = req.params;
+        const { status } = req.body;
+
+        const validStatuses = [
+            "scheduled",
+            "confirmed",
+            "cancelled"
+        ];
+
+        if (!validStatuses.includes(status)) {
+            return res.status(400).json({
+                message: "Status inválido."
+            });
+        }
+
+        const [result] = await pool.query(
+            `
+            UPDATE appointments
+            SET status = ?
+            WHERE id = ?
+            `,
+            [status, id]
+        );
 
         if (result.affectedRows === 0) {
             return res.status(404).json({
-                message:
-                    "Agendamento não encontrado.",
+                message: "Agendamento não encontrado."
             });
         }
 
         return res.json({
             message:
-                "Status atualizado com sucesso.",
+                "Status atualizado com sucesso."
         });
     } catch (error) {
         console.error(
@@ -713,55 +676,34 @@ export async function updateAppointmentStatus(
 
         return res.status(500).json({
             message:
-                "Erro ao atualizar status.",
+                "Erro ao atualizar status."
         });
     }
 }
 
 export async function deleteAppointment(req, res) {
-    const { id } = req.params;
-
-    const connection =
-        await pool.getConnection();
-
     try {
-        await connection.beginTransaction();
+        const { id } = req.params;
 
-        await connection.query(
+        const [result] = await pool.query(
             `
-            DELETE FROM appointment_services
-            WHERE appointment_id = ?
+            DELETE FROM appointments
+            WHERE id = ?
             `,
             [id]
         );
 
-        const [result] =
-            await connection.query(
-                `
-                DELETE FROM appointments
-                WHERE id = ?
-                `,
-                [id]
-            );
-
         if (result.affectedRows === 0) {
-            await connection.rollback();
-
             return res.status(404).json({
-                message:
-                    "Agendamento não encontrado.",
+                message: "Agendamento não encontrado."
             });
         }
 
-        await connection.commit();
-
         return res.json({
             message:
-                "Agendamento excluído com sucesso.",
+                "Agendamento excluído com sucesso."
         });
     } catch (error) {
-        await connection.rollback();
-
         console.error(
             "Erro ao excluir agendamento:",
             error
@@ -769,78 +711,38 @@ export async function deleteAppointment(req, res) {
 
         return res.status(500).json({
             message:
-                "Erro ao excluir agendamento.",
+                "Erro ao excluir agendamento."
         });
-    } finally {
-        connection.release();
     }
 }
 
-export async function deleteExpiredAppointments() {
-    const connection =
-        await pool.getConnection();
-
+export async function deleteExpiredAppointments(req, res) {
     try {
-        await connection.beginTransaction();
-
-        const [appointments] =
-            await connection.query(
-                `
-                SELECT id
-                FROM appointments
-                WHERE TIMESTAMP(
-                    appointment_date,
-                    end_time
-                ) < NOW()
-                `
-            );
-
-        if (appointments.length === 0) {
-            await connection.commit();
-            return 0;
-        }
-
-        const appointmentIds =
-            appointments.map(
-                (appointment) =>
-                    appointment.id
-            );
-
-        const placeholders =
-            appointmentIds
-                .map(() => "?")
-                .join(",");
-
-        await connection.query(
+        const [result] = await pool.query(
             `
-            DELETE FROM appointment_services
-            WHERE appointment_id IN (${placeholders})
-            `,
-            appointmentIds
+            DELETE FROM appointments
+            WHERE CONCAT(
+                appointment_date,
+                ' ',
+                start_time
+            ) < NOW()
+            `
         );
 
-        const [result] =
-            await connection.query(
-                `
-                DELETE FROM appointments
-                WHERE id IN (${placeholders})
-                `,
-                appointmentIds
-            );
-
-        await connection.commit();
-
-        return result.affectedRows;
+        return res.json({
+            message:
+                "Agendamentos expirados excluídos.",
+            deleted: result.affectedRows
+        });
     } catch (error) {
-        await connection.rollback();
-
         console.error(
             "Erro ao excluir agendamentos expirados:",
             error
         );
 
-        throw error;
-    } finally {
-        connection.release();
+        return res.status(500).json({
+            message:
+                "Erro ao excluir agendamentos expirados."
+        });
     }
 }

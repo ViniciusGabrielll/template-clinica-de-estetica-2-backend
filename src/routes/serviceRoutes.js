@@ -2,6 +2,7 @@ import express from "express";
 
 import {
     getServices,
+    getFeaturedServices,
     getServiceById,
     createService,
     updateService,
@@ -14,6 +15,8 @@ import upload from "../config/upload.js";
 const router = express.Router();
 
 router.get("/", getServices);
+
+router.get("/featured", getFeaturedServices);
 
 router.get("/:id", getServiceById);
 

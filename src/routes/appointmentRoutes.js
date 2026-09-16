@@ -15,7 +15,10 @@ const router = express.Router();
 
 router.post("/", createAppointment);
 
-router.get("/available", getAvailableTimes);
+router.get(
+    "/available",
+    getAvailableTimes
+);
 
 router.get(
     "/",
