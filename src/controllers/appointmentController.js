@@ -633,6 +633,8 @@ export async function getAppointmentById(req, res) {
 }
 
 export async function updateAppointmentStatus(req, res) {
+    const connection = await pool.getConnection();
+
     try {
         const { id } = req.params;
         const { status } = req.body;
@@ -649,7 +651,41 @@ export async function updateAppointmentStatus(req, res) {
             });
         }
 
-        const [result] = await pool.query(
+        if (status === "cancelled") {
+            await connection.beginTransaction();
+
+            await connection.query(
+                `
+                DELETE FROM appointment_services
+                WHERE appointment_id = ?
+                `,
+                [id]
+            );
+
+            const [result] = await connection.query(
+                `
+                DELETE FROM appointments
+                WHERE id = ?
+                `,
+                [id]
+            );
+
+            if (result.affectedRows === 0) {
+                await connection.rollback();
+
+                return res.status(404).json({
+                    message: "Agendamento não encontrado."
+                });
+            }
+
+            await connection.commit();
+
+            return res.json({
+                message: "Agendamento cancelado e excluído com sucesso."
+            });
+        }
+
+        const [result] = await connection.query(
             `
             UPDATE appointments
             SET status = ?
@@ -665,19 +701,21 @@ export async function updateAppointmentStatus(req, res) {
         }
 
         return res.json({
-            message:
-                "Status atualizado com sucesso."
+            message: "Status atualizado com sucesso."
         });
     } catch (error) {
+        await connection.rollback();
+
         console.error(
             "Erro ao atualizar status:",
             error
         );
 
         return res.status(500).json({
-            message:
-                "Erro ao atualizar status."
+            message: "Erro ao atualizar status."
         });
+    } finally {
+        connection.release();
     }
 }
 
