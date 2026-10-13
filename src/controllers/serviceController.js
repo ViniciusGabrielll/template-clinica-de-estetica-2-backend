@@ -104,13 +104,12 @@ export async function createService(req, res) {
             name,
             description,
             duration,
-            price,
             featured
         } = req.body;
 
-        if (!name || !duration || price === undefined) {
+        if (!name || !duration) {
             return res.status(400).json({
-                message: "Nome, duração e preço são obrigatórios."
+                message: "Nome e duração são obrigatórios."
             });
         }
 
@@ -120,25 +119,18 @@ export async function createService(req, res) {
             });
         }
 
-        if (Number(price) < 0) {
-            return res.status(400).json({
-                message: "O preço não pode ser negativo."
-            });
-        }
-
         const imageUrl = await uploadImageToCloudinary(req.file);
 
         const isFeatured = featured === true || featured === "true";
 
         const [result] = await pool.query(
             `INSERT INTO services
-            (name, description, duration, price, image_url, featured)
-            VALUES (?, ?, ?, ?, ?, ?)`,
+            (name, description, duration, image_url, featured)
+            VALUES (?, ?, ?, ?, ?)`,
             [
                 name,
                 description || null,
                 Number(duration),
-                Number(price),
                 imageUrl,
                 isFeatured
             ]
@@ -166,25 +158,18 @@ export async function updateService(req, res) {
             name,
             description,
             duration,
-            price,
             featured
         } = req.body;
 
-        if (!name || !duration || price === undefined) {
+        if (!name || !duration) {
             return res.status(400).json({
-                message: "Nome, duração e preço são obrigatórios."
+                message: "Nome e duração são obrigatórios."
             });
         }
 
         if (Number(duration) <= 0) {
             return res.status(400).json({
                 message: "A duração deve ser maior que zero."
-            });
-        }
-
-        if (Number(price) < 0) {
-            return res.status(400).json({
-                message: "O preço não pode ser negativo."
             });
         }
 
@@ -202,7 +187,6 @@ export async function updateService(req, res) {
                     name = ?,
                     description = ?,
                     duration = ?,
-                    price = ?,
                     image_url = ?,
                     featured = ?
                 WHERE id = ?
@@ -213,7 +197,6 @@ export async function updateService(req, res) {
                 name,
                 description || null,
                 Number(duration),
-                Number(price),
                 imageUrl,
                 isFeatured,
                 id
@@ -225,7 +208,6 @@ export async function updateService(req, res) {
                     name = ?,
                     description = ?,
                     duration = ?,
-                    price = ?,
                     featured = ?
                 WHERE id = ?
                 AND active = TRUE
@@ -235,7 +217,6 @@ export async function updateService(req, res) {
                 name,
                 description || null,
                 Number(duration),
-                Number(price),
                 isFeatured,
                 id
             ];

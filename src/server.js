@@ -17,7 +17,6 @@ import {
 
 import cloudinary from "./config/cloudinary.js";
 
-import promotionRoutes from "./routes/promotionRoutes.js";
 
 console.log("Cloudinary:", cloudinary.config().cloud_name);
 
@@ -36,7 +35,6 @@ app.use(
     "/api/blocked-dates",
     blockedDateRoutes
 );
-app.use("/api/promotions", promotionRoutes);
 
 
 app.get("/", async (req, res) => {

@@ -41,7 +41,7 @@ export async function createAppointment(req, res) {
 
         const [services] = await pool.query(
             `
-            SELECT id, name, duration, price
+            SELECT id, name, duration
             FROM services
             WHERE id IN (${placeholders})
             AND active = TRUE
@@ -55,47 +55,9 @@ export async function createAppointment(req, res) {
             });
         }
 
-        const [promotions] = await pool.query(
-            `
-            SELECT service_id, promotional_price
-            FROM promotions
-            WHERE service_id IN (${placeholders})
-            AND expires_at > NOW()
-            `,
-            uniqueServiceIds
-        );
-
-        const promotionsMap = new Map(
-            promotions.map((promotion) => [
-                Number(promotion.service_id),
-                Number(promotion.promotional_price)
-            ])
-        );
-
         const totalDuration = services.reduce(
             (total, service) =>
                 total + Number(service.duration),
-            0
-        );
-
-        const originalTotalPrice = services.reduce(
-            (total, service) =>
-                total + Number(service.price),
-            0
-        );
-
-        const totalPrice = services.reduce(
-            (total, service) => {
-                const promotionalPrice =
-                    promotionsMap.get(Number(service.id));
-
-                const price =
-                    promotionalPrice !== undefined
-                        ? promotionalPrice
-                        : Number(service.price);
-
-                return total + price;
-            },
             0
         );
 
@@ -217,11 +179,9 @@ export async function createAppointment(req, res) {
                         appointment_date,
                         start_time,
                         end_time,
-                        original_total_price,
-                        total_price,
                         status
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')
+                    VALUES (?, ?, ?, ?, ?, ?, 'scheduled')
                     `,
                     [
                         uniqueServiceIds[0],
@@ -230,8 +190,6 @@ export async function createAppointment(req, res) {
                         appointment_date,
                         normalizedStartTime,
                         endTime,
-                        originalTotalPrice,
-                        totalPrice
                     ]
                 );
 
@@ -261,9 +219,6 @@ export async function createAppointment(req, res) {
                 message: "Agendamento realizado com sucesso.",
                 appointment_id: appointmentId,
                 total_duration: totalDuration,
-                original_total_price:
-                    originalTotalPrice,
-                total_price: totalPrice,
                 end_time: endTime
             });
         } catch (error) {
@@ -493,8 +448,6 @@ export async function getAppointments(req, res) {
                     a.appointment_date,
                     a.start_time,
                     a.end_time,
-                    a.original_total_price,
-                    a.total_price,
                     a.status,
                     COALESCE(
                         GROUP_CONCAT(
@@ -528,8 +481,6 @@ export async function getAppointments(req, res) {
                     a.appointment_date,
                     a.start_time,
                     a.end_time,
-                    a.original_total_price,
-                    a.total_price,
                     a.status,
                     s1.name,
                     s1.duration
@@ -567,8 +518,6 @@ export async function getAppointmentById(req, res) {
                     a.appointment_date,
                     a.start_time,
                     a.end_time,
-                    a.original_total_price,
-                    a.total_price,
                     a.status,
                     COALESCE(
                         GROUP_CONCAT(
@@ -602,10 +551,7 @@ export async function getAppointmentById(req, res) {
                     a.customer_phone,
                     a.appointment_date,
                     a.start_time,
-                    a.end_time,
-                    a.original_total_price,
-                    a.total_price,
-                    a.status,
+                    a.end_time,                    a.status,
                     s1.name,
                     s1.duration
                 `,
